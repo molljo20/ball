@@ -3,6 +3,7 @@ from keras.models import load_model
 from PIL import Image, ImageOps
 import numpy as np
 import os
+from pathlib import Path
 
 # Seitenkonfiguration
 st.set_page_config(
@@ -29,23 +30,53 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("📊 Modell-Info")
-    st.write("Verwendetes Modell: `keras_Model.h5`")
-    st.write(" Klassen: Fußball, Volleyball")
     
-    st.markdown("---")
-    st.caption("Made with Streamlit & Keras")
+    # Zeige an, wo die Dateien gefunden werden
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    st.write(f"Aktuelles Verzeichnis: `{current_dir}`")
+    
+    # Prüfe, welche Dateien existieren
+    files = os.listdir(current_dir)
+    st.write("Gefundene Dateien:")
+    for file in files:
+        st.write(f"- {file}")
 
 # Überprüfen, ob Modell-Dateien existieren
 @st.cache_resource
 def load_ball_model():
     """Lädt das Keras-Modell und die Labels"""
     try:
-        model = load_model("keras_Model.h5", compile=False)
-        class_names = open("labels.txt", "r").readlines()
+        # Absoluten Pfad zur Datei ermitteln
+        current_dir = Path(__file__).parent.absolute()
+        model_path = current_dir / "keras_Model.h5"
+        labels_path = current_dir / "labels.txt"
+        
+        st.sidebar.write(f"📁 Versuche Modell zu laden von: {model_path}")
+        
+        # Prüfe ob Dateien existieren
+        if not model_path.exists():
+            st.sideki.error(f"❌ Modell nicht gefunden: {model_path}")
+            # Zeige alle Dateien im Verzeichnis
+            files = list(current_dir.glob("*"))
+            st.sidebar.write("Vorhandene Dateien:")
+            for f in files:
+                st.sidebar.write(f"- {f.name}")
+            return None, None
+            
+        if not labels_path.exists():
+            st.sidebar.error(f"❌ Labels nicht gefunden: {labels_path}")
+            return None, None
+        
+        # Modell laden
+        model = load_model(str(model_path), compile=False)
+        with open(labels_path, "r") as f:
+            class_names = f.readlines()
+        
+        st.sidebar.success("✅ Modell erfolgreich geladen!")
         return model, class_names
-    except FileNotFoundError as e:
-        st.error(f"❌ Datei nicht gefunden: {e}")
-        st.info("Bitte stelle sicher, dass 'keras_Model.h5' und 'labels.txt' im selben Verzeichnis wie diese App liegen.")
+        
+    except Exception as e:
+        st.sidebar.error(f"❌ Fehler beim Laden: {str(e)}")
         return None, None
 
 # Modell laden
@@ -83,65 +114,70 @@ def predict_ball_type(image_data):
 
 # Hauptbereich - Datei-Upload
 st.header("📤 Bild hochladen")
-uploaded_file = st.file_uploader(
-    "Wähle ein Bild aus...", 
-    type=["jpg", "jpeg", "png", "bmp", "webp"],
-    help="Lade ein Bild mit einem Fußball oder Volleyball hoch"
-)
 
-# Wenn ein Bild hochgeladen wurde
-if uploaded_file is not None and model is not None:
-    # Bild anzeigen
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📸 Hochgeladenes Bild")
-        image = Image.open(uploaded_file)
-        st.image(image, use_container_width=True)
-    
-    # Bild vorverarbeiten und Vorhersage durchführen
-    with st.spinner("🔍 Analysiere Bild..."):
-        processed_image, original_image = preprocess_image(image)
-        class_name, confidence, index = predict_ball_type(processed_image)
-    
-    # Ergebnis anzeigen
-    with col2:
-        st.subheader("🎯 Ergebnis")
-        
-        # Emoji basierend auf Vorhersage
-        ball_emoji = "⚽" if "fußball" in class_name.lower() or "fussball" in class_name.lower() else "🏐"
-        
-        # Fortschrittsbalken für Konfidenz
-        st.metric("Erkannte Ballart", f"{ball_emoji} {class_name}")
-        st.progress(float(confidence))
-        st.caption(f"Konfidenz: {confidence:.2%}")
-        
-        # Zusätzliche Informationen
-        st.markdown("---")
-        st.markdown("**📊 Detailierte Vorhersage:**")
-        
-        # Alle Klassenwahrscheinlichkeiten anzeigen
-        prediction = model.predict(processed_image, verbose=0)[0]
-        for i, class_label in enumerate(class_names):
-            prob = prediction[i]
-            clean_label = class_label.strip()
-            emoji = "⚽" if "fußball" in clean_label.lower() or "fussball" in clean_label.lower() else "🏐"
-            st.markdown(f"{emoji} **{clean_label}:** {prob:.2%}")
-
-# Wenn kein Modell gefunden wurde
-elif model is None:
+# Prüfe ob Modell geladen wurde
+if model is None or class_names is None:
     st.error("⚠️ Modell konnte nicht geladen werden!")
     st.info("""
-    ### 📋 So richtest du die App ein:
-    1. Stelle sicher, dass `keras_Model.h5` und `labels.txt` im selben Verzeichnis sind
-    2. Die Dateien sollten folgendermaßen aussehen:
-    ```
-    dein_projekt_ordner/
-    ├── app.py              # Diese Streamlit-App
-    ├── keras_Model.h5      # Dein trainiertes Modell
-    └── labels.txt          # Die Klassen-Labels
-    ```
+    ### 📋 Problembehandlung:
+    1. Stelle sicher, dass folgende Dateien im Repository sind:
+       - `keras_Model.h5`
+       - `labels.txt`
+    
+    2. Die Dateien müssen im **Hauptverzeichnis** liegen (nicht in einem Unterordner)
+    
+    3. Überprüfe die Dateinamen (Groß-/Kleinschreibung):
+       - `keras_Model.h5` (nicht `keras_model.h5`)
+       - `labels.txt` (nicht `Labels.txt`)
+    
+    4. In Streamlit Cloud:
+       - Gehe zu "Manage app" → "Logs" für detaillierte Fehlermeldungen
     """)
+else:
+    uploaded_file = st.file_uploader(
+        "Wähle ein Bild aus...", 
+        type=["jpg", "jpeg", "png", "bmp", "webp"],
+        help="Lade ein Bild mit einem Fußball oder Volleyball hoch"
+    )
+    
+    # Wenn ein Bild hochgeladen wurde
+    if uploaded_file is not None:
+        # Bild anzeigen
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📸 Hochgeladenes Bild")
+            image = Image.open(uploaded_file)
+            st.image(image, use_container_width=True)
+        
+        # Bild vorverarbeiten und Vorhersage durchführen
+        with st.spinner("🔍 Analysiere Bild..."):
+            processed_image, original_image = preprocess_image(image)
+            class_name, confidence, index = predict_ball_type(processed_image)
+        
+        # Ergebnis anzeigen
+        with col2:
+            st.subheader("🎯 Ergebnis")
+            
+            # Emoji basierend auf Vorhersage
+            ball_emoji = "⚽" if "fußball" in class_name.lower() or "fussball" in class_name.lower() or "football" in class_name.lower() else "🏐"
+            
+            # Fortschrittsbalken für Konfidenz
+            st.metric("Erkannte Ballart", f"{ball_emoji} {class_name}")
+            st.progress(float(confidence))
+            st.caption(f"Konfidenz: {confidence:.2%}")
+            
+            # Zusätzliche Informationen
+            st.markdown("---")
+            st.markdown("**📊 Detailierte Vorhersage:**")
+            
+            # Alle Klassenwahrscheinlichkeiten anzeigen
+            prediction = model.predict(processed_image, verbose=0)[0]
+            for i, class_label in enumerate(class_names):
+                prob = prediction[i]
+                clean_label = class_label.strip()
+                emoji = "⚽" if "fußball" in clean_label.lower() or "fussball" in clean_label.lower() or "football" in clean_label.lower() else "🏐"
+                st.markdown(f"{emoji} **{clean_label}:** {prob:.2%}")
 
 # Footer
 st.markdown("---")
