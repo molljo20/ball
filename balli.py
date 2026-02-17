@@ -28,12 +28,8 @@ with st.sidebar:
     st.header("🔍 Debug-Informationen")
     
     # Aktuelles Verzeichnis
-    current_dir = Path(__file__).parent.absolute()
+    current_dir = Path("/mount/src/ball")
     st.write(f"📂 App-Verzeichnis: `{current_dir}`")
-    
-    # Arbeitsverzeichnis
-    work_dir = Path.cwd()
-    st.write(f"📂 Arbeitsverzeichnis: `{work_dir}`")
     
     # Alle Dateien im Verzeichnis auflisten
     st.write("📋 Vorhandene Dateien:")
@@ -47,76 +43,81 @@ with st.sidebar:
                 st.write(f"- 📁 {f.name}/")
     except Exception as e:
         st.write(f"Fehler beim Auflisten: {e}")
-    
-    # Python-Pfad
-    st.write(f"🐍 Python-Pfad: {sys.path}")
 
-# Modell-Ladefunktion mit mehreren Suchstrategien
+# Modell-Ladefunktion mit verschiedenen Backend-Optionen
 @st.cache_resource
 def load_ball_model():
-    """Lädt das Keras-Modell und die Labels mit verschiedenen Suchstrategien"""
+    """Lädt das Keras-Modell mit verschiedenen Kompatibilitätsoptionen"""
     
-    # Verschiedene mögliche Pfade
-    possible_paths = []
-    
-    # 1. Aktuelles Verzeichnis der Python-Datei
-    current_dir = Path(__file__).parent.absolute()
-    possible_paths.append(current_dir)
-    
-    # 2. Arbeitsverzeichnis
-    possible_paths.append(Path.cwd())
-    
-    # 3. Direkt im Hauptverzeichnis (für Streamlit Cloud)
-    possible_paths.append(Path("/mount/src/ball"))
-    
-    # 4. Im selben Verzeichnis wie das Skript
-    possible_paths.append(Path(__file__).parent)
+    model_path = Path("/mount/src/ball/keras_Model.h5")
+    labels_path = Path("/mount/src/ball/labels.txt")
     
     st.sidebar.markdown("---")
-    st.sidebar.header("🔎 Modell-Suche")
+    st.sidebar.header("🔎 Modell-Ladeversuch")
     
-    model = None
-    class_names = None
-    found_model = False
-    found_labels = False
+    # Prüfe ob Dateien existieren
+    if not model_path.exists():
+        st.sidebar.error(f"❌ Modell nicht gefunden: {model_path}")
+        return None, None
     
-    for path in possible_paths:
-        model_path = path / "keras_Model.h5"
-        labels_path = path / "labels.txt"
+    if not labels_path.exists():
+        st.sidebar.error(f"❌ Labels nicht gefunden: {labels_path}")
+        return None, None
+    
+    st.sidebar.success(f"✅ Dateien gefunden!")
+    st.sidebar.write(f"Modell Größe: {model_path.stat().st_size:,} bytes")
+    
+    # Labels laden
+    try:
+        with open(labels_path, "r") as f:
+            class_names = [line.strip() for line in f.readlines()]
+        st.sidebar.success(f"✅ Labels geladen: {class_names}")
+    except Exception as e:
+        st.sidebar.error(f"❌ Fehler beim Laden der Labels: {e}")
+        return None, None
+    
+    # Versuche Modell mit verschiedenen Optionen zu laden
+    try:
+        # Versuch 1: Normales Laden
+        st.sidebar.write("Versuch 1: Normales Laden...")
+        model = tf.keras.models.load_model(model_path, compile=False)
+        st.sidebar.success("✅ Modell erfolgreich geladen (Versuch 1)!")
+        return model, class_names
+    except Exception as e1:
+        st.sidebar.warning(f"Versuch 1 fehlgeschlagen: {str(e1)[:100]}...")
         
-        st.sidebar.write(f"Suche in: {path}")
-        
-        if model_path.exists() and not found_model:
-            st.sidebar.success(f"✅ Modell gefunden: {model_path}")
-            found_model = True
+        try:
+            # Versuch 2: Mit custom_objects für ältere Modelle
+            st.sidebar.write("Versuch 2: Mit custom_objects...")
+            model = tf.keras.models.load_model(
+                model_path, 
+                compile=False,
+                custom_objects={'tf': tf}
+            )
+            st.sidebar.success("✅ Modell erfolgreich geladen (Versuch 2)!")
+            return model, class_names
+        except Exception as e2:
+            st.sidebar.warning(f"Versuch 2 fehlgeschlagen: {str(e2)[:100]}...")
+            
             try:
-                model = tf.keras.models.load_model(str(model_path), compile=False)
-                st.sidebar.success("✅ Modell erfolgreich geladen!")
-            except Exception as e:
-                st.sidebar.error(f"❌ Fehler beim Laden: {e}")
-                model = None
-        
-        if labels_path.exists() and not found_labels:
-            st.sidebar.success(f"✅ Labels gefunden: {labels_path}")
-            found_labels = True
-            try:
-                with open(labels_path, "r") as f:
-                    class_names = [line.strip() for line in f.readlines()]
-                st.sidebar.success(f"✅ Labels geladen: {class_names}")
-            except Exception as e:
-                st.sidebar.error(f"❌ Fehler beim Laden der Labels: {e}")
-                class_names = None
-        
-        if found_model and found_labels:
-            break
-    
-    if not found_model:
-        st.sidebar.error("❌ keras_Model.h5 nicht gefunden!")
-    
-    if not found_labels:
-        st.sidebar.error("❌ labels.txt nicht gefunden!")
-    
-    return model, class_names
+                # Versuch 3: Als H5-Datei mit spezifischen Einstellungen
+                st.sidebar.write("Versuch 3: Mit safe_mode=False...")
+                model = tf.keras.models.load_model(
+                    model_path, 
+                    compile=False,
+                    safe_mode=False
+                )
+                st.sidebar.success("✅ Modell erfolgreich geladen (Versuch 3)!")
+                return model, class_names
+            except Exception as e3:
+                st.sidebar.error(f"❌ Alle Ladeversuche fehlgeschlagen!")
+                st.sidebar.error(f"Letzter Fehler: {str(e3)}")
+                
+                # Zeige TensorFlow Version für Debugging
+                st.sidebar.write(f"TensorFlow Version: {tf.__version__}")
+                st.sidebar.write(f"Keras Version: {tf.keras.__version__}")
+                
+                return None, None
 
 # Modell laden
 model, class_names = load_ball_model()
@@ -142,6 +143,15 @@ def preprocess_image(image):
     
     return data, image
 
+def predict_ball_type(image_data):
+    """Führt die Vorhersage durch"""
+    prediction = model.predict(image_data, verbose=0)
+    index = np.argmax(prediction)
+    class_name = class_names[index].strip()
+    confidence_score = prediction[0][index]
+    
+    return class_name, confidence_score, index
+
 # Hauptbereich - Datei-Upload
 st.header("📤 Bild hochladen")
 
@@ -150,47 +160,26 @@ if model is None or class_names is None:
     st.error("⚠️ Modell konnte nicht geladen werden!")
     
     st.info("""
-    ### 📋 Mögliche Lösungen:
+    ### 📋 Kompatibilitätsproblem:
     
-    1. **Repository auf GitHub prüfen:**
-       ```bash
-       # Überprüfe, ob die Dateien wirklich da sind:
-       ls -la /mount/src/ball/
+    Dein Modell konnte nicht mit der aktuellen TensorFlow Version geladen werden.
+    
+    **Mögliche Lösungen:**
+    
+    1. **TensorFlow Version in requirements.txt anpassen:**
+       ```
+       tensorflow==2.13.0
+       keras==2.13.0
        ```
     
-    2. **Manuell nachsehen:** Gehe zu deinem GitHub-Repository und prüfe:
-       - [ ] `keras_Model.h5` ist vorhanden
-       - [ ] `labels.txt` ist vorhanden
-       - [ ] Die Dateinamen sind **exakt** gleich (Groß-/Kleinschreibung!)
+    2. **Modell neu exportieren** mit der aktuellen Version
     
-    3. **Dateien neu hochladen:**
-       ```bash
-       git add keras_Model.h5 labels.txt
-       git commit -m "Add model files"
-       git push
-       ```
-    
-    4. **In Streamlit Cloud:** 
-       - Gehe zu "Manage app" → "Reboot" (neu starten)
-       - Prüfe die Logs auf spezifische Fehler
+    3. **Anderes Modell-Format verwenden** (z.B. SavedModel)
     """)
     
-    # Zeige detaillierte Info
-    st.markdown("---")
-    st.subheader("📊 Detaillierte System-Info:")
+    # Zeige TensorFlow Version
+    st.write(f"📦 TensorFlow Version: {tf.__version__}")
     
-    # Versuche direkt auf Dateien zuzugreifen
-    try:
-        base_path = Path("/mount/src/ball")
-        st.write(f"Inhalt von {base_path}:")
-        if base_path.exists():
-            for item in base_path.iterdir():
-                st.write(f"- {item.name}")
-        else:
-            st.write("❌ Pfad nicht gefunden!")
-    except Exception as e:
-        st.write(f"Fehler: {e}")
-
 else:
     uploaded_file = st.file_uploader(
         "Wähle ein Bild aus...", 
@@ -218,7 +207,7 @@ else:
             st.subheader("🎯 Ergebnis")
             
             # Emoji basierend auf Vorhersage
-            ball_emoji = "⚽" if any(keyword in class_name.lower() for keyword in ["fußball", "fussball", "football"]) else "🏐"
+            ball_emoji = "⚽" if any(keyword in class_name.lower() for keyword in ["fußball", "fussball", "football", "0"]) else "🏐"
             
             # Fortschrittsbalken für Konfidenz
             st.metric("Erkannte Ballart", f"{ball_emoji} {class_name}")
@@ -234,17 +223,8 @@ else:
             for i, class_label in enumerate(class_names):
                 prob = prediction[i] if i < len(prediction) else 0
                 clean_label = str(class_label).strip()
-                emoji = "⚽" if any(keyword in clean_label.lower() for keyword in ["fußball", "fussball", "football"]) else "🏐"
+                emoji = "⚽" if any(keyword in clean_label.lower() for keyword in ["fußball", "fussball", "football", "0"]) else "🏐"
                 st.markdown(f"{emoji} **{clean_label}:** {prob:.2%}")
-
-def predict_ball_type(image_data):
-    """Führt die Vorhersage durch"""
-    prediction = model.predict(image_data, verbose=0)
-    index = np.argmax(prediction)
-    class_name = class_names[index].strip()
-    confidence_score = prediction[0][index]
-    
-    return class_name, confidence_score, index
 
 # Footer
 st.markdown("---")
